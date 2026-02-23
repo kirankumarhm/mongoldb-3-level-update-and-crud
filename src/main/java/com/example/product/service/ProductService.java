@@ -2,12 +2,16 @@ package com.example.product.service;
 
 import com.example.product.dto.ProductRequestDto;
 import com.example.product.dto.ProductResponseDto;
+import com.example.product.exception.InvalidUpdateException;
+import com.example.product.exception.ProductNotFoundException;
 import com.example.product.model.Product;
 import com.example.product.model.ProductDetails;
-import com.example.product.model.ProductLogistics; // NEW
+import com.example.product.model.ProductLogistics;
 import com.example.product.repository.ProductRepository;
 import com.example.product.mapper.ProductMapper;
 import com.mongodb.client.result.UpdateResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
@@ -25,6 +29,8 @@ import java.util.stream.Collectors;
 @Service
 public class ProductService {
 
+    private static final Logger log = LoggerFactory.getLogger(ProductService.class);
+
     private final ProductRepository productRepository;
     private final MongoTemplate mongoTemplate;
     private final GenericUpdateService<Product> genericUpdateService;
@@ -40,23 +46,31 @@ public class ProductService {
     }
 
     public ProductResponseDto saveProduct(ProductRequestDto productRequestDto) {
+        log.debug("Saving new product: {}", productRequestDto.getName());
         Product product = ProductMapper.INSTANCE.toEntity(productRequestDto);
         Product preparedProduct = prepareProductForSave(product);
         Product savedProduct = productRepository.save(preparedProduct);
+        log.info("Product saved successfully with ID: {}", savedProduct.getId());
         return ProductMapper.INSTANCE.toResponseDto(savedProduct);
     }
 
     public Optional<ProductResponseDto> getProductById(String id) {
+        log.debug("Fetching product by ID: {}", id);
         return productRepository.findById(id)
                 .map(ProductMapper.INSTANCE::toResponseDto);
     }
 
     public Optional<ProductResponseDto> getProductByIdWithProjection(String id, List<String> fields) {
+        log.debug("Fetching product by ID: {} with projection fields: {}", id, fields);
         Query query = new Query(Criteria.where("id").is(id));
         fields.forEach(field -> query.fields().include(field));
         
         Product product = mongoTemplate.findOne(query, Product.class);
-        return Optional.ofNullable(product).map(ProductMapper.INSTANCE::toResponseDto);
+        if (product == null) {
+            log.warn("Product not found with ID: {}", id);
+            throw new ProductNotFoundException(id);
+        }
+        return Optional.of(ProductMapper.INSTANCE.toResponseDto(product));
     }
 
     public List<ProductResponseDto> getAllProductsWithProjection(List<String> fields) {
@@ -70,18 +84,31 @@ public class ProductService {
     }
 
     public List<ProductResponseDto> getAllProducts() {
-        return productRepository.findAll().stream()
+        log.debug("Fetching all products");
+        List<ProductResponseDto> products = productRepository.findAll().stream()
                 .map(ProductMapper.INSTANCE::toResponseDto)
                 .collect(Collectors.toList());
+        log.info("Retrieved {} products", products.size());
+        return products;
     }
 
     public void deleteProduct(String id) {
-        if (productRepository.existsById(id)) {
-            productRepository.deleteById(id);
+        log.debug("Deleting product with ID: {}", id);
+        if (!productRepository.existsById(id)) {
+            log.warn("Cannot delete - Product not found with ID: {}", id);
+            throw new ProductNotFoundException(id);
         }
+        productRepository.deleteById(id);
+        log.info("Product deleted successfully: {}", id);
     }
 
     public boolean updateProductStatus(String id, String newStatus) {
+        log.debug("Updating status for product ID: {} to: {}", id, newStatus);
+        if (!productRepository.existsById(id)) {
+            log.warn("Cannot update status - Product not found with ID: {}", id);
+            throw new ProductNotFoundException(id);
+        }
+        
         Query query = new Query(Criteria.where("id").is(id));
         Update update = new Update();
 
@@ -92,19 +119,30 @@ public class ProductService {
         }
 
         UpdateResult result = mongoTemplate.updateFirst(query, update, Product.class);
-        return result.getMatchedCount() > 0;
+        boolean updated = result.getMatchedCount() > 0;
+        if (updated) {
+            log.info("Product status updated successfully for ID: {}", id);
+        }
+        return updated;
     }
 
     public boolean updateProductFields(String id, Map<String, Object> updates) {
-        Optional<Product> productOptional = productRepository.findById(id);
-        if (productOptional.isEmpty()) {
-            return false;
+        log.debug("Updating fields for product ID: {} with {} updates", id, updates.size());
+        if (updates == null || updates.isEmpty()) {
+            log.warn("No updates provided for product ID: {}", id);
+            throw new InvalidUpdateException("No updates provided");
         }
+        
+        Product productToUpdate = productRepository.findById(id)
+                .orElseThrow(() -> {
+                    log.warn("Cannot update - Product not found with ID: {}", id);
+                    return new ProductNotFoundException(id);
+                });
 
-        Product productToUpdate = productOptional.get();
         Product updatedProduct = genericUpdateService.applyUpdates(productToUpdate, updates);
         Product cleanedProduct = prepareProductForSave(updatedProduct);
         productRepository.save(cleanedProduct);
+        log.info("Product fields updated successfully for ID: {}", id);
 
         return true;
     }
