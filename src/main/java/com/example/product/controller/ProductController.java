@@ -2,7 +2,17 @@ package com.example.product.controller;
 
 import com.example.product.dto.ProductRequestDto;
 import com.example.product.dto.ProductResponseDto;
+import com.example.product.exception.InvalidUpdateException;
+import com.example.product.exception.ProductNotFoundException;
 import com.example.product.service.ProductService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,8 +28,9 @@ import java.util.stream.Collectors;
  * Exposes endpoints for creating, retrieving, and deleting products,
  * and performing partial updates.
  */
-@RestController // Marks this class as a Spring REST Controller
-@RequestMapping("/api/products") // Base path for all endpoints in this controller
+@RestController
+@RequestMapping("/api/products")
+@Tag(name = "Product Management", description = "APIs for managing products with nested collections")
 public class ProductController {
 
     private final ProductService productService;
@@ -37,8 +48,14 @@ public class ProductController {
      * @param productRequestDto The ProductRequestDto object received in the request body.
      * @return A ResponseEntity containing the saved ProductResponseDto and HTTP status 201 (Created).
      */
-    @PostMapping // Maps HTTP POST requests to /api/products
-    public ResponseEntity<ProductResponseDto> createProduct(@RequestBody ProductRequestDto productRequestDto) {
+    @PostMapping
+    @Operation(summary = "Create a new product", description = "Creates a new product with optional nested details and logistics")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Product created successfully",
+                    content = @Content(schema = @Schema(implementation = ProductResponseDto.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid input data")
+    })
+    public ResponseEntity<ProductResponseDto> createProduct(@Valid @RequestBody ProductRequestDto productRequestDto) {
         ProductResponseDto savedProductDto = productService.saveProduct(productRequestDto);
         return new ResponseEntity<>(savedProductDto, HttpStatus.CREATED);
     }
@@ -50,11 +67,18 @@ public class ProductController {
      * @return An Optional containing the ProductResponseDto and HTTP status 200 (OK),
      * or 404 (Not Found) if the product does not exist.
      */
-    @GetMapping("/{id}") // Maps HTTP GET requests to /api/products/{id}
-    public ResponseEntity<ProductResponseDto> getProductById(@PathVariable String id) {
-        return productService.getProductById(id)
-                .map(productResponseDto -> new ResponseEntity<>(productResponseDto, HttpStatus.OK))
-                .orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
+    @GetMapping("/{id}")
+    @Operation(summary = "Get product by ID", description = "Retrieves a product by its unique identifier")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Product found",
+                    content = @Content(schema = @Schema(implementation = ProductResponseDto.class))),
+            @ApiResponse(responseCode = "404", description = "Product not found")
+    })
+    public ResponseEntity<ProductResponseDto> getProductById(
+            @Parameter(description = "Product ID", required = true) @PathVariable String id) {
+        ProductResponseDto product = productService.getProductById(id)
+                .orElseThrow(() -> new ProductNotFoundException(id));
+        return ResponseEntity.ok(product);
     }
 
     /**
@@ -66,17 +90,24 @@ public class ProductController {
      * @return An Optional containing the ProductResponseDto with projected fields if found, or empty otherwise.
      */
     @GetMapping("/{id}/projected")
+    @Operation(summary = "Get product with field projection", 
+               description = "Retrieves specific fields of a product. Example: fields=name,price,productDetails.color")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Product found with projected fields"),
+            @ApiResponse(responseCode = "404", description = "Product not found")
+    })
     public ResponseEntity<ProductResponseDto> getProductByIdWithProjection(
-            @PathVariable String id,
+            @Parameter(description = "Product ID", required = true) @PathVariable String id,
+            @Parameter(description = "Comma-separated field names", example = "name,price,category")
             @RequestParam(required = false) String fields) {
 
         List<String> fieldList = (fields != null && !fields.isEmpty()) ?
                 Arrays.asList(fields.split(",")).stream().map(String::trim).collect(Collectors.toList()) :
-                List.of(); // Empty list if no fields specified, service will fetch all
+                List.of();
 
-        return productService.getProductByIdWithProjection(id, fieldList)
-                .map(productResponseDto -> new ResponseEntity<>(productResponseDto, HttpStatus.OK))
-                .orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
+        ProductResponseDto product = productService.getProductByIdWithProjection(id, fieldList)
+                .orElseThrow(() -> new ProductNotFoundException(id));
+        return ResponseEntity.ok(product);
     }
 
     /**
@@ -84,7 +115,9 @@ public class ProductController {
      *
      * @return A ResponseEntity containing a list of all ProductResponseDto objects.
      */
-    @GetMapping // Maps HTTP GET requests to /api/products
+    @GetMapping
+    @Operation(summary = "Get all products", description = "Retrieves all products from the database")
+    @ApiResponse(responseCode = "200", description = "List of products retrieved successfully")
     public ResponseEntity<List<ProductResponseDto>> getAllProducts() {
         List<ProductResponseDto> products = productService.getAllProducts();
         return new ResponseEntity<>(products, HttpStatus.OK);
@@ -98,7 +131,11 @@ public class ProductController {
      * @return A ResponseEntity containing a list of ProductResponseDto objects with projected fields.
      */
     @GetMapping("/projected")
+    @Operation(summary = "Get all products with field projection",
+               description = "Retrieves all products with only specified fields")
+    @ApiResponse(responseCode = "200", description = "Products retrieved with projected fields")
     public ResponseEntity<List<ProductResponseDto>> getAllProductsWithProjection(
+            @Parameter(description = "Comma-separated field names", example = "name,price")
             @RequestParam(required = false) String fields) {
 
         List<String> fieldList = (fields != null && !fields.isEmpty()) ?
@@ -117,10 +154,16 @@ public class ProductController {
      * @return A ResponseEntity with HTTP status 204 (No Content) on successful deletion,
      * or 404 (Not Found) if the product does not exist.
      */
-    @DeleteMapping("/{id}") // Maps HTTP DELETE requests to /api/products/{id}
-    public ResponseEntity<Void> deleteProduct(@PathVariable String id) {
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete product", description = "Deletes a product by its ID")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "Product deleted successfully"),
+            @ApiResponse(responseCode = "404", description = "Product not found")
+    })
+    public ResponseEntity<Void> deleteProduct(
+            @Parameter(description = "Product ID", required = true) @PathVariable String id) {
         productService.deleteProduct(id);
-        return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -131,18 +174,22 @@ public class ProductController {
      * @return A ResponseEntity with HTTP status 200 (OK) on successful update,
      * or 404 (Not Found) if the product does not exist.
      */
-    @PatchMapping("/{id}/status") // Maps HTTP PATCH requests to /api/products/{id}/status
-    public ResponseEntity<Void> updateProductStatus(@PathVariable String id, @RequestBody Map<String, String> updates) {
+    @PatchMapping("/{id}/status")
+    @Operation(summary = "Update product status", description = "Updates only the status field of a product")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Status updated successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid status value"),
+            @ApiResponse(responseCode = "404", description = "Product not found")
+    })
+    public ResponseEntity<Void> updateProductStatus(
+            @Parameter(description = "Product ID", required = true) @PathVariable String id,
+            @RequestBody Map<String, String> updates) {
         String newStatus = updates.get("status");
         if (newStatus == null) {
-            return new ResponseEntity<>(HttpStatus.BAD_REQUEST); // Status field is required
+            throw new InvalidUpdateException("Status field is required");
         }
-        boolean updated = productService.updateProductStatus(id, newStatus);
-        if (updated) {
-            return new ResponseEntity<>(HttpStatus.OK);
-        } else {
-            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
-        }
+        productService.updateProductStatus(id, newStatus);
+        return ResponseEntity.ok().build();
     }
 
     /**
@@ -157,18 +204,22 @@ public class ProductController {
      * @return A ResponseEntity with HTTP status 200 (OK) on successful update,
      * or 404 (Not Found) if the product does not exist, or 400 (Bad Request) if no updates provided.
      */
-    @PatchMapping("/{id}") // Generic PATCH endpoint for /api/products/{id}
-    public ResponseEntity<Void> patchProduct(@PathVariable String id, @RequestBody Map<String, Object> updates) {
+    @PatchMapping("/{id}")
+    @Operation(summary = "Partial update product", 
+               description = "Updates specific fields of a product including nested fields. Supports dot notation for nested updates (e.g., productDetails.spec-1.color)")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Product updated successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid update data"),
+            @ApiResponse(responseCode = "404", description = "Product not found")
+    })
+    public ResponseEntity<Void> patchProduct(
+            @Parameter(description = "Product ID", required = true) @PathVariable String id,
+            @RequestBody Map<String, Object> updates) {
         if (updates == null || updates.isEmpty()) {
-            return new ResponseEntity<>(HttpStatus.BAD_REQUEST); // No updates provided
+            throw new InvalidUpdateException("No updates provided");
         }
-
-        boolean updated = productService.updateProductFields(id, updates);
-        if (updated) {
-            return new ResponseEntity<>(HttpStatus.OK);
-        } else {
-            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
-        }
+        productService.updateProductFields(id, updates);
+        return ResponseEntity.ok().build();
     }
 }
 
