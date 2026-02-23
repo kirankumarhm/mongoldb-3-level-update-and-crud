@@ -12,30 +12,30 @@ Production-ready Spring Boot application demonstrating:
 
 ```mermaid
 graph TB
-    subgraph "Client Layer"
+    subgraph ClientLayer["Client Layer"]
         REST[REST Client]
     end
     
-    subgraph "Controller Layer"
-        PC[ProductController<br/>@RestController]
+    subgraph ControllerLayer["Controller Layer"]
+        PC[ProductController]
     end
     
-    subgraph "Service Layer"
+    subgraph ServiceLayer["Service Layer"]
         PS[ProductService]
-        GUS[GenericUpdateService<br/>Strategy Pattern]
+        GUS[GenericUpdateService]
     end
     
-    subgraph "Strategy Layer"
+    subgraph StrategyLayer["Strategy Layer"]
         SFS[SimpleFieldUpdateStrategy]
         NFS[NestedFieldUpdateStrategy]
         LES[ListElementUpdateStrategy]
     end
     
-    subgraph "Repository Layer"
-        PR[ProductRepository<br/>MongoRepository]
+    subgraph RepositoryLayer["Repository Layer"]
+        PR[ProductRepository]
     end
     
-    subgraph "Database Layer"
+    subgraph DatabaseLayer["Database Layer"]
         MONGO[(MongoDB)]
     end
     
@@ -223,16 +223,16 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     Start([Receive Update Request]) --> Parse[Parse Field Path]
-    Parse --> CheckList{Starts with<br/>listFieldName?}
+    Parse --> CheckList{Starts with listFieldName?}
     
     CheckList -->|Yes| ListStrategy[ListElementUpdateStrategy]
-    CheckList -->|No| CheckNested{Contains<br/>dot?}
+    CheckList -->|No| CheckNested{Contains dot?}
     
     CheckNested -->|Yes| NestedStrategy[NestedFieldUpdateStrategy]
     CheckNested -->|No| SimpleStrategy[SimpleFieldUpdateStrategy]
     
-    ListStrategy --> ApplyList[Find element by ID<br/>Update nested property]
-    NestedStrategy --> ApplyNested[Navigate nested object<br/>Update property]
+    ListStrategy --> ApplyList[Find element by ID and Update nested property]
+    NestedStrategy --> ApplyNested[Navigate nested object and Update property]
     SimpleStrategy --> ApplySimple[Update top-level field]
     
     ApplyList --> Success([Update Applied])
@@ -249,12 +249,12 @@ flowchart TD
 ```mermaid
 flowchart TD
     Request([API Request]) --> Controller[Controller Method]
-    Controller --> Validation{@Valid<br/>Validation}
+    Controller --> Validation{Validation Check}
     
     Validation -->|Failed| MVE[MethodArgumentNotValidException]
     Validation -->|Passed| Service[Service Layer]
     
-    Service --> Business{Business<br/>Logic}
+    Service --> Business{Business Logic}
     
     Business -->|Not Found| PNF[ProductNotFoundException]
     Business -->|Invalid Update| IUE[InvalidUpdateException]
@@ -270,12 +270,12 @@ flowchart TD
     IAE --> Handler
     GE --> Handler
     
-    Handler --> Response{Exception<br/>Type}
+    Handler --> Response{Exception Type}
     
-    Response -->|MVE| R400A[400 Bad Request<br/>Validation errors]
-    Response -->|PNF| R404[404 Not Found<br/>Resource not found]
-    Response -->|IUE/VE/IAE| R400B[400 Bad Request<br/>Error message]
-    Response -->|GE| R500[500 Internal Server Error<br/>Generic error]
+    Response -->|MVE| R400A[400 Bad Request - Validation errors]
+    Response -->|PNF| R404[404 Not Found - Resource not found]
+    Response -->|IUE/VE/IAE| R400B[400 Bad Request - Error message]
+    Response -->|GE| R500[500 Internal Server Error - Generic error]
     
     R400A --> Client([Client])
     R404 --> Client
@@ -610,3 +610,6 @@ See [LOGGING.md](LOGGING.md) for configuration.
 ✅ **MapStruct + Lombok** - Automatic DTO mapping  
 ✅ **Production Ready** - Exception handling, validation, logging, API docs
 
+## License
+
+MIT License
